@@ -8630,6 +8630,36 @@ fn parse_create_materialized_view() {
 }
 
 #[test]
+fn parse_refresh_materialized_view() {
+    match verified_stmt("REFRESH MATERIALIZED VIEW myschema.myview") {
+        Statement::RefreshMaterializedView {
+            concurrently,
+            name,
+            with_data,
+        } => {
+            assert!(!concurrently);
+            assert_eq!("myschema.myview", name.to_string());
+            assert_eq!(None, with_data);
+        }
+        _ => unreachable!(),
+    }
+
+    match verified_stmt("REFRESH MATERIALIZED VIEW CONCURRENTLY myview WITH DATA") {
+        Statement::RefreshMaterializedView {
+            concurrently,
+            with_data,
+            ..
+        } => {
+            assert!(concurrently);
+            assert_eq!(Some(true), with_data);
+        }
+        _ => unreachable!(),
+    }
+
+    verified_stmt("REFRESH MATERIALIZED VIEW myview WITH NO DATA");
+}
+
+#[test]
 fn parse_create_materialized_view_with_cluster_by() {
     let sql = "CREATE MATERIALIZED VIEW myschema.myview CLUSTER BY (foo) AS SELECT foo FROM bar";
     match verified_stmt(sql) {

@@ -383,6 +383,11 @@ impl Spanned for Statement {
                     .chain(core::iter::once(module_name.span))
                     .chain(module_args.iter().map(|i| i.span)),
             ),
+            Statement::RefreshMaterializedView {
+                name,
+                concurrently: _,
+                with_data: _,
+            } => name.span(),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
             Statement::CreateExtension(create_extension) => create_extension.span(),

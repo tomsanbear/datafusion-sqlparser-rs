@@ -624,6 +624,7 @@ impl<'a> Parser<'a> {
                     self.parse_query().map(Into::into)
                 }
                 Keyword::TRUNCATE => self.parse_truncate().map(Into::into),
+                Keyword::REFRESH => self.parse_refresh_materialized_view(),
                 Keyword::ATTACH => {
                     if dialect_of!(self is DuckDbDialect) {
                         self.parse_attach_duckdb_database()
@@ -1087,6 +1088,26 @@ impl<'a> Parser<'a> {
             repair,
             table_name,
             partition_action,
+        })
+    }
+
+    /// Parse a `REFRESH MATERIALIZED VIEW` statement.
+    pub fn parse_refresh_materialized_view(&mut self) -> Result<Statement, ParserError> {
+        self.expect_keyword_is(Keyword::MATERIALIZED)?;
+        self.expect_keyword_is(Keyword::VIEW)?;
+        let concurrently = self.parse_keyword(Keyword::CONCURRENTLY);
+        let name = self.parse_object_name(false)?;
+        let with_data = if self.parse_keywords(&[Keyword::WITH, Keyword::NO, Keyword::DATA]) {
+            Some(false)
+        } else if self.parse_keywords(&[Keyword::WITH, Keyword::DATA]) {
+            Some(true)
+        } else {
+            None
+        };
+        Ok(Statement::RefreshMaterializedView {
+            concurrently,
+            name,
+            with_data,
         })
     }
 

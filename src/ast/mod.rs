@@ -3706,6 +3706,19 @@ pub enum Statement {
         module_args: Vec<Ident>,
     },
     /// ```sql
+    /// REFRESH MATERIALIZED VIEW [ CONCURRENTLY ] name [ WITH [ NO ] DATA ]
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-refreshmaterializedview.html)
+    RefreshMaterializedView {
+        /// `true` when `CONCURRENTLY` was specified.
+        concurrently: bool,
+        #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+        /// Name of the materialized view to refresh.
+        name: ObjectName,
+        /// `Some(true)` for `WITH DATA`, `Some(false)` for `WITH NO DATA`, `None` when omitted.
+        with_data: Option<bool>,
+    },
+    /// ```sql
     /// `CREATE INDEX`
     /// ```
     CreateIndex(CreateIndex),
@@ -5489,6 +5502,25 @@ impl fmt::Display for Statement {
                 )?;
                 if !module_args.is_empty() {
                     write!(f, " ({})", display_comma_separated(module_args))?;
+                }
+                Ok(())
+            }
+            Statement::RefreshMaterializedView {
+                concurrently,
+                name,
+                with_data,
+            } => {
+                write!(f, "REFRESH MATERIALIZED VIEW ")?;
+                if *concurrently {
+                    write!(f, "CONCURRENTLY ")?;
+                }
+                write!(f, "{name}")?;
+                if let Some(with_data) = with_data {
+                    if *with_data {
+                        write!(f, " WITH DATA")?;
+                    } else {
+                        write!(f, " WITH NO DATA")?;
+                    }
                 }
                 Ok(())
             }
