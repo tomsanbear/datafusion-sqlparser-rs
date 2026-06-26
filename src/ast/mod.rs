@@ -2493,6 +2493,8 @@ pub enum CommentObject {
     Collation,
     /// A table column.
     Column,
+    /// A named constraint (`COMMENT ON CONSTRAINT name ON table`).
+    Constraint,
     /// A database.
     Database,
     /// A domain.
@@ -2528,6 +2530,7 @@ impl fmt::Display for CommentObject {
         match self {
             CommentObject::Collation => f.write_str("COLLATION"),
             CommentObject::Column => f.write_str("COLUMN"),
+            CommentObject::Constraint => f.write_str("CONSTRAINT"),
             CommentObject::Database => f.write_str("DATABASE"),
             CommentObject::Domain => f.write_str("DOMAIN"),
             CommentObject::Extension => f.write_str("EXTENSION"),
@@ -4310,6 +4313,9 @@ pub enum Statement {
         object_type: CommentObject,
         /// Name of the object the comment applies to.
         object_name: ObjectName,
+        /// Relation the object belongs to, for `COMMENT ON CONSTRAINT name ON
+        /// table` (the constraint's table); `None` for every other object.
+        relation: Option<ObjectName>,
         /// Optional comment text (None to remove comment).
         comment: Option<String>,
         /// An optional `IF EXISTS` clause. (Non-standard.)
@@ -6089,6 +6095,7 @@ impl fmt::Display for Statement {
             Statement::Comment {
                 object_type,
                 object_name,
+                relation,
                 comment,
                 if_exists,
             } => {
@@ -6096,7 +6103,11 @@ impl fmt::Display for Statement {
                 if *if_exists {
                     write!(f, "IF EXISTS ")?
                 };
-                write!(f, "ON {object_type} {object_name} IS ")?;
+                write!(f, "ON {object_type} {object_name}")?;
+                if let Some(relation) = relation {
+                    write!(f, " ON {relation}")?;
+                }
+                write!(f, " IS ")?;
                 if let Some(c) = comment {
                     write!(f, "'{c}'")
                 } else {

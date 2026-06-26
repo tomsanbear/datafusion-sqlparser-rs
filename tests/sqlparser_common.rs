@@ -15355,6 +15355,7 @@ fn parse_comments() {
         Statement::Comment {
             object_type,
             object_name,
+            relation: None,
             comment: Some(comment),
             if_exists,
         } => {
@@ -15392,6 +15393,7 @@ fn parse_comments() {
             Statement::Comment {
                 object_type,
                 object_name,
+                relation: None,
                 comment: Some(comment),
                 if_exists,
             } => {
@@ -15410,6 +15412,7 @@ fn parse_comments() {
         Statement::Comment {
             object_type,
             object_name,
+            relation: None,
             comment: None,
             if_exists,
         } => {
@@ -15443,6 +15446,26 @@ fn parse_comments() {
             .unwrap_err(),
         ParserError::ParserError("Expected: comment object_type, found: UNKNOWN".to_string())
     );
+
+    // `COMMENT ON CONSTRAINT name ON table` carries the table in `relation`.
+    match all_dialects_where(|d| d.supports_comment_on())
+        .verified_stmt("COMMENT ON CONSTRAINT my_constraint ON tab IS 'comment'")
+    {
+        Statement::Comment {
+            object_type,
+            object_name,
+            relation: Some(relation),
+            comment: Some(comment),
+            if_exists,
+        } => {
+            assert_eq!(CommentObject::Constraint, object_type);
+            assert_eq!("my_constraint", object_name.to_string());
+            assert_eq!("tab", relation.to_string());
+            assert_eq!("comment", comment);
+            assert!(!if_exists);
+        }
+        _ => unreachable!(),
+    }
 }
 
 #[test]

@@ -985,6 +985,7 @@ fn parse_drop_and_comment_collation_ast() {
         Statement::Comment {
             object_type: CommentObject::Collation,
             object_name: ObjectName::from(vec![Ident::new("test0")]),
+            relation: None,
             comment: Some("US English".to_string()),
             if_exists: false,
         }
