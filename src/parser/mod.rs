@@ -10282,7 +10282,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if self.parse_keyword(Keyword::RENAME) {
-            if dialect_of!(self is PostgreSqlDialect) && self.parse_keyword(Keyword::CONSTRAINT) {
+            if dialect_of!(self is PostgreSqlDialect | GenericDialect) && self.parse_keyword(Keyword::CONSTRAINT) {
                 let old_name = self.parse_identifier()?;
                 self.expect_keyword_is(Keyword::TO)?;
                 let new_name = self.parse_identifier()?;

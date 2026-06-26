@@ -634,8 +634,11 @@ fn parse_create_table_like_with_defaults() {
 
 #[test]
 fn parse_alter_table_constraints_rename() {
+    // QuiltDB fork patch: RENAME CONSTRAINT is accepted under GenericDialect in
+    // addition to PostgreSqlDialect (pg_and_generic asserts both parse it
+    // identically; it would fail for Generic before the parser gate was widened).
     match alter_table_op(
-        pg().verified_stmt("ALTER TABLE tab RENAME CONSTRAINT old_name TO new_name"),
+        pg_and_generic().verified_stmt("ALTER TABLE tab RENAME CONSTRAINT old_name TO new_name"),
     ) {
         AlterTableOperation::RenameConstraint { old_name, new_name } => {
             assert_eq!(old_name.to_string(), "old_name");
