@@ -73,6 +73,8 @@ pub struct Insert {
     pub partitioned: Option<Vec<Expr>>,
     /// Columns defined after PARTITION
     pub after_columns: Vec<Ident>,
+    /// PostgreSQL `OVERRIDING { SYSTEM | USER } VALUE`
+    pub overriding: Option<InsertOverriding>,
     /// whether the insert has the table keyword (Hive)
     pub has_table_keyword: bool,
     /// ON INSERT
@@ -206,6 +208,11 @@ impl Display for Insert {
             SpaceOrNewline.fmt(f)?;
         }
 
+        if let Some(overriding) = &self.overriding {
+            write!(f, "{overriding}")?;
+            SpaceOrNewline.fmt(f)?;
+        }
+
         if let Some(output) = &self.output {
             write!(f, "{output}")?;
             SpaceOrNewline.fmt(f)?;
@@ -272,6 +279,28 @@ impl Display for Insert {
         }
 
         Ok(())
+    }
+}
+
+/// `OVERRIDING { SYSTEM | USER } VALUE` clause for a PostgreSQL `INSERT`.
+///
+/// <https://www.postgresql.org/docs/current/sql-insert.html>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum InsertOverriding {
+    /// `OVERRIDING SYSTEM VALUE`
+    System,
+    /// `OVERRIDING USER VALUE`
+    User,
+}
+
+impl Display for InsertOverriding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InsertOverriding::System => write!(f, "OVERRIDING SYSTEM VALUE"),
+            InsertOverriding::User => write!(f, "OVERRIDING USER VALUE"),
+        }
     }
 }
 

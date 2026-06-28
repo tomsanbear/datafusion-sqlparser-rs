@@ -1343,6 +1343,7 @@ impl Spanned for Insert {
             source,
             partitioned,
             after_columns,
+            overriding: _,        // postgres OVERRIDING { SYSTEM | USER } VALUE
             has_table_keyword: _, // bool
             on,
             returning,

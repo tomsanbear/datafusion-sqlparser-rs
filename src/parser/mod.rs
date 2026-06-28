@@ -10292,7 +10292,9 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if self.parse_keyword(Keyword::RENAME) {
-            if dialect_of!(self is PostgreSqlDialect | GenericDialect) && self.parse_keyword(Keyword::CONSTRAINT) {
+            if dialect_of!(self is PostgreSqlDialect | GenericDialect)
+                && self.parse_keyword(Keyword::CONSTRAINT)
+            {
                 let old_name = self.parse_identifier()?;
                 self.expect_keyword_is(Keyword::TO)?;
                 let new_name = self.parse_identifier()?;
@@ -17928,7 +17930,7 @@ impl<'a> Parser<'a> {
             let table_alias = if self.dialect.supports_insert_table_alias()
                 && !self.peek_sub_query()
                 && self
-                    .peek_one_of_keywords(&[Keyword::DEFAULT, Keyword::VALUES])
+                    .peek_one_of_keywords(&[Keyword::DEFAULT, Keyword::VALUES, Keyword::OVERRIDING])
                     .is_none()
             {
                 if self.parse_keyword(Keyword::AS) {
@@ -17949,48 +17951,51 @@ impl<'a> Parser<'a> {
 
             let is_mysql = dialect_of!(self is MySqlDialect);
 
-            let (columns, partitioned, after_columns, output, source, assignments) = if self
-                .parse_keywords(&[Keyword::DEFAULT, Keyword::VALUES])
-            {
-                (vec![], None, vec![], None, None, vec![])
-            } else {
-                let (columns, partitioned, after_columns) = if !self.peek_subquery_start() {
-                    let columns =
-                        self.parse_parenthesized_qualified_column_list(Optional, is_mysql)?;
+            let (columns, partitioned, after_columns, overriding, output, source, assignments) =
+                if self.parse_keywords(&[Keyword::DEFAULT, Keyword::VALUES]) {
+                    (vec![], None, vec![], None, None, None, vec![])
+                } else {
+                    let (columns, partitioned, after_columns) = if !self.peek_subquery_start() {
+                        let columns =
+                            self.parse_parenthesized_qualified_column_list(Optional, is_mysql)?;
 
-                    let partitioned = self.parse_insert_partition()?;
-                    // Hive allows you to specify columns after partitions as well if you want.
-                    let after_columns = if dialect_of!(self is HiveDialect) {
-                        self.parse_parenthesized_column_list(Optional, false)?
+                        let partitioned = self.parse_insert_partition()?;
+                        // Hive allows you to specify columns after partitions as well if you want.
+                        let after_columns = if dialect_of!(self is HiveDialect) {
+                            self.parse_parenthesized_column_list(Optional, false)?
+                        } else {
+                            vec![]
+                        };
+                        (columns, partitioned, after_columns)
                     } else {
-                        vec![]
+                        Default::default()
                     };
-                    (columns, partitioned, after_columns)
-                } else {
-                    Default::default()
+
+                    let overriding = self.parse_insert_overriding()?;
+
+                    let output = self.maybe_parse_output_clause()?;
+
+                    let (source, assignments) = if self.peek_keyword(Keyword::FORMAT)
+                        || self.peek_keyword(Keyword::SETTINGS)
+                    {
+                        (None, vec![])
+                    } else if self.dialect.supports_insert_set() && self.parse_keyword(Keyword::SET)
+                    {
+                        (None, self.parse_comma_separated(Parser::parse_assignment)?)
+                    } else {
+                        (Some(self.parse_query()?), vec![])
+                    };
+
+                    (
+                        columns,
+                        partitioned,
+                        after_columns,
+                        overriding,
+                        output,
+                        source,
+                        assignments,
+                    )
                 };
-
-                let output = self.maybe_parse_output_clause()?;
-
-                let (source, assignments) = if self.peek_keyword(Keyword::FORMAT)
-                    || self.peek_keyword(Keyword::SETTINGS)
-                {
-                    (None, vec![])
-                } else if self.dialect.supports_insert_set() && self.parse_keyword(Keyword::SET) {
-                    (None, self.parse_comma_separated(Parser::parse_assignment)?)
-                } else {
-                    (Some(self.parse_query()?), vec![])
-                };
-
-                (
-                    columns,
-                    partitioned,
-                    after_columns,
-                    output,
-                    source,
-                    assignments,
-                )
-            };
 
             let (format_clause, settings) = if self.dialect.supports_insert_format() {
                 // Settings always comes before `FORMAT` for ClickHouse:
@@ -18086,6 +18091,7 @@ impl<'a> Parser<'a> {
                 partitioned,
                 columns,
                 after_columns,
+                overriding,
                 source,
                 assignments,
                 has_table_keyword: table,
@@ -18189,6 +18195,25 @@ impl<'a> Parser<'a> {
         } else {
             Ok(None)
         }
+    }
+
+    /// Parse the optional `OVERRIDING { SYSTEM | USER } VALUE` clause of a
+    /// PostgreSQL `INSERT` (between the column list and the source). `None` when absent.
+    ///
+    /// <https://www.postgresql.org/docs/current/sql-insert.html>
+    pub fn parse_insert_overriding(&mut self) -> Result<Option<InsertOverriding>, ParserError> {
+        if !self.parse_keyword(Keyword::OVERRIDING) {
+            return Ok(None);
+        }
+        let overriding = if self.parse_keyword(Keyword::SYSTEM) {
+            InsertOverriding::System
+        } else if self.parse_keyword(Keyword::USER) {
+            InsertOverriding::User
+        } else {
+            return self.expected("SYSTEM or USER", self.peek_token());
+        };
+        self.expect_keyword_is(Keyword::VALUE)?;
+        Ok(Some(overriding))
     }
 
     /// Parse optional Hive `INPUTFORMAT ... SERDE ...` clause used by LOAD DATA.

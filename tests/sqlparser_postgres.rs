@@ -2114,6 +2114,47 @@ fn parse_prepare() {
 }
 
 #[test]
+fn parse_insert_overriding() {
+    // OVERRIDING SYSTEM VALUE without a column list.
+    match pg_and_generic().verified_stmt("INSERT INTO t OVERRIDING SYSTEM VALUE VALUES (1)") {
+        Statement::Insert(Insert { overriding, .. }) => {
+            assert_eq!(overriding, Some(InsertOverriding::System));
+        }
+        _ => unreachable!(),
+    }
+
+    // OVERRIDING USER VALUE with a column list.
+    match pg_and_generic().verified_stmt("INSERT INTO t (a) OVERRIDING USER VALUE VALUES (1)") {
+        Statement::Insert(Insert { overriding, .. }) => {
+            assert_eq!(overriding, Some(InsertOverriding::User));
+        }
+        _ => unreachable!(),
+    }
+
+    // OVERRIDING with a query (SELECT) source.
+    match pg_and_generic().verified_stmt("INSERT INTO t OVERRIDING USER VALUE SELECT 1") {
+        Statement::Insert(Insert { overriding, .. }) => {
+            assert_eq!(overriding, Some(InsertOverriding::User));
+        }
+        _ => unreachable!(),
+    }
+
+    // Absent clause yields `None`.
+    match pg_and_generic().verified_stmt("INSERT INTO t VALUES (1)") {
+        Statement::Insert(Insert { overriding, .. }) => {
+            assert_eq!(overriding, None);
+        }
+        _ => unreachable!(),
+    }
+
+    // `OVERRIDING ... DEFAULT VALUES` is a syntax error in PostgreSQL (the clause only
+    // precedes a VALUES/query source), so we reject it as well.
+    assert!(pg()
+        .parse_sql_statements("INSERT INTO t OVERRIDING SYSTEM VALUE DEFAULT VALUES")
+        .is_err());
+}
+
+#[test]
 fn parse_pg_on_conflict() {
     let stmt = pg_and_generic().verified_stmt(
         "INSERT INTO distributors (did, dname) \
@@ -5795,6 +5836,7 @@ fn test_simple_postgres_insert_with_alias() {
             assignments: vec![],
             partitioned: None,
             after_columns: vec![],
+            overriding: None,
             has_table_keyword: false,
             on: None,
             returning: None,
@@ -5878,6 +5920,7 @@ fn test_simple_postgres_insert_with_alias() {
             assignments: vec![],
             partitioned: None,
             after_columns: vec![],
+            overriding: None,
             has_table_keyword: false,
             on: None,
             returning: None,
@@ -5959,6 +6002,7 @@ fn test_simple_insert_with_quoted_alias() {
             assignments: vec![],
             partitioned: None,
             after_columns: vec![],
+            overriding: None,
             has_table_keyword: false,
             on: None,
             returning: None,
