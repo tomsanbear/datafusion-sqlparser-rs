@@ -19741,44 +19741,36 @@ impl<'a> Parser<'a> {
 
     fn parse_create_sequence_options(&mut self) -> Result<Vec<SequenceOptions>, ParserError> {
         let mut sequence_options = vec![];
-        //[ INCREMENT [ BY ] increment ]
-        if self.parse_keywords(&[Keyword::INCREMENT]) {
-            if self.parse_keywords(&[Keyword::BY]) {
-                sequence_options.push(SequenceOptions::IncrementBy(self.parse_number()?, true));
+        // PostgreSQL accepts CREATE SEQUENCE options in ANY order, so parse them
+        // in a loop — each iteration consumes one recognized option — rather than
+        // a fixed positional sequence (which rejected e.g. `START 5 INCREMENT 2`
+        // by leaving the reordered tokens unconsumed). Recognized options:
+        // INCREMENT [BY], MINVALUE | NO MINVALUE, MAXVALUE | NO MAXVALUE,
+        // START [WITH], CACHE, [NO] CYCLE.
+        loop {
+            if self.parse_keywords(&[Keyword::INCREMENT]) {
+                let by = self.parse_keywords(&[Keyword::BY]);
+                sequence_options.push(SequenceOptions::IncrementBy(self.parse_number()?, by));
+            } else if self.parse_keyword(Keyword::MINVALUE) {
+                sequence_options.push(SequenceOptions::MinValue(Some(self.parse_number()?)));
+            } else if self.parse_keywords(&[Keyword::NO, Keyword::MINVALUE]) {
+                sequence_options.push(SequenceOptions::MinValue(None));
+            } else if self.parse_keywords(&[Keyword::MAXVALUE]) {
+                sequence_options.push(SequenceOptions::MaxValue(Some(self.parse_number()?)));
+            } else if self.parse_keywords(&[Keyword::NO, Keyword::MAXVALUE]) {
+                sequence_options.push(SequenceOptions::MaxValue(None));
+            } else if self.parse_keywords(&[Keyword::START]) {
+                let with = self.parse_keywords(&[Keyword::WITH]);
+                sequence_options.push(SequenceOptions::StartWith(self.parse_number()?, with));
+            } else if self.parse_keywords(&[Keyword::CACHE]) {
+                sequence_options.push(SequenceOptions::Cache(self.parse_number()?));
+            } else if self.parse_keywords(&[Keyword::NO, Keyword::CYCLE]) {
+                sequence_options.push(SequenceOptions::Cycle(true));
+            } else if self.parse_keywords(&[Keyword::CYCLE]) {
+                sequence_options.push(SequenceOptions::Cycle(false));
             } else {
-                sequence_options.push(SequenceOptions::IncrementBy(self.parse_number()?, false));
+                break;
             }
-        }
-        //[ MINVALUE minvalue | NO MINVALUE ]
-        if self.parse_keyword(Keyword::MINVALUE) {
-            sequence_options.push(SequenceOptions::MinValue(Some(self.parse_number()?)));
-        } else if self.parse_keywords(&[Keyword::NO, Keyword::MINVALUE]) {
-            sequence_options.push(SequenceOptions::MinValue(None));
-        }
-        //[ MAXVALUE maxvalue | NO MAXVALUE ]
-        if self.parse_keywords(&[Keyword::MAXVALUE]) {
-            sequence_options.push(SequenceOptions::MaxValue(Some(self.parse_number()?)));
-        } else if self.parse_keywords(&[Keyword::NO, Keyword::MAXVALUE]) {
-            sequence_options.push(SequenceOptions::MaxValue(None));
-        }
-
-        //[ START [ WITH ] start ]
-        if self.parse_keywords(&[Keyword::START]) {
-            if self.parse_keywords(&[Keyword::WITH]) {
-                sequence_options.push(SequenceOptions::StartWith(self.parse_number()?, true));
-            } else {
-                sequence_options.push(SequenceOptions::StartWith(self.parse_number()?, false));
-            }
-        }
-        //[ CACHE cache ]
-        if self.parse_keywords(&[Keyword::CACHE]) {
-            sequence_options.push(SequenceOptions::Cache(self.parse_number()?));
-        }
-        // [ [ NO ] CYCLE ]
-        if self.parse_keywords(&[Keyword::NO, Keyword::CYCLE]) {
-            sequence_options.push(SequenceOptions::Cycle(true));
-        } else if self.parse_keywords(&[Keyword::CYCLE]) {
-            sequence_options.push(SequenceOptions::Cycle(false));
         }
 
         Ok(sequence_options)

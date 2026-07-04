@@ -294,6 +294,11 @@ fn parse_create_sequence() {
         "CREATE SEQUENCE name4 AS BIGINT INCREMENT -15 MINVALUE -2000 MAXVALUE -50 START WITH -60",
     );
 
+    // Options may appear in ANY order (PostgreSQL-compatible); the fixed
+    // positional parser used to reject a reordering like START before INCREMENT.
+    let sql_reordered = "CREATE SEQUENCE name8 START WITH 5 INCREMENT BY 2";
+    pg().one_statement_parses_to(sql_reordered, "CREATE SEQUENCE name8 START WITH 5 INCREMENT BY 2");
+
     let sql8 = "CREATE SEQUENCE name5
     AS BIGINT
     INCREMENT   +10
