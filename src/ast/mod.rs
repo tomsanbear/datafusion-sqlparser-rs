@@ -67,15 +67,17 @@ pub use self::ddl::{
     AlterPolicyOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
     AlterTableLock, AlterTableOperation, AlterTableType, AlterType, AlterTypeAddValue,
     AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue,
-    ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
-    ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation, CreateCollationDefinition,
+    ClusteredBy, ColocateWith, ColocationPartitionFn, ColumnDef, ColumnOption, ColumnOptionDef,
+    ColumnOptions, ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation,
+    CreateCollationDefinition,
     CreateConnector, CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
     CreateTable, CreateTrigger, CreateView, Deduplicate, DeferrableInitial, DistStyle,
     DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass, DropOperatorFamily,
     DropOperatorSignature, DropPolicy, DropTrigger, ForValues, FunctionReturnType, GeneratedAs,
     GeneratedExpressionMode, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
-    IdentityPropertyKind, IdentityPropertyOrder, IndexColumn, IndexOption, IndexType,
+    IdentityPropertyKind, IdentityPropertyOrder, InColocationGroup, IndexColumn, IndexOption,
+    IndexType,
     KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes, OperatorClassItem,
     OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose, Owner, Partition,
     PartitionBoundValue, ProcedureParam, ReferentialAction, RenameTableNameKind, ReplicaIdentity,
@@ -3722,6 +3724,35 @@ pub enum Statement {
         with_data: Option<bool>,
     },
     /// ```sql
+    /// CREATE COLOCATION GROUP [ IF NOT EXISTS ] name PARTITION BY { HASH | RANGE } (column [, ...]) SHARDS n
+    /// ```
+    /// QuiltDB: declare a colocation group — a set of tables aligned on a
+    /// shared partition function and shard count so related rows land on
+    /// matching shard indices.
+    CreateColocationGroup {
+        /// `true` when `IF NOT EXISTS` was specified.
+        if_not_exists: bool,
+        /// Name of the colocation group.
+        name: ObjectName,
+        /// Declared partition-function kind (`HASH` / `RANGE`).
+        partition_fn: ColocationPartitionFn,
+        /// Declared key column name(s). Documentary for members (each member
+        /// names its own key via `ON`); the count pins the key arity.
+        key_columns: Vec<Ident>,
+        /// The shared shard-index space every member partitions into.
+        shards: u64,
+    },
+    /// ```sql
+    /// DROP COLOCATION GROUP [ IF EXISTS ] name
+    /// ```
+    /// QuiltDB: drop a colocation group (refused while it has members).
+    DropColocationGroup {
+        /// `true` when `IF EXISTS` was specified.
+        if_exists: bool,
+        /// Name of the colocation group to drop.
+        name: ObjectName,
+    },
+    /// ```sql
     /// `CREATE INDEX`
     /// ```
     CreateIndex(CreateIndex),
@@ -5529,6 +5560,28 @@ impl fmt::Display for Statement {
                     }
                 }
                 Ok(())
+            }
+            Statement::CreateColocationGroup {
+                if_not_exists,
+                name,
+                partition_fn,
+                key_columns,
+                shards,
+            } => {
+                write!(
+                    f,
+                    "CREATE COLOCATION GROUP {if_not_exists}{name} PARTITION BY {partition_fn} \
+                     ({key_columns}) SHARDS {shards}",
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                    key_columns = display_comma_separated(key_columns),
+                )
+            }
+            Statement::DropColocationGroup { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP COLOCATION GROUP {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
             }
             Statement::CreateIndex(create_index) => create_index.fmt(f),
             Statement::CreateExtension(create_extension) => write!(f, "{create_extension}"),

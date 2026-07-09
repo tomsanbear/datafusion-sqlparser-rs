@@ -388,6 +388,16 @@ impl Spanned for Statement {
                 concurrently: _,
                 with_data: _,
             } => name.span(),
+            Statement::CreateColocationGroup {
+                if_not_exists: _,
+                name,
+                partition_fn: _,
+                key_columns,
+                shards: _,
+            } => union_spans(
+                core::iter::once(name.span()).chain(key_columns.iter().map(|i| i.span)),
+            ),
+            Statement::DropColocationGroup { if_exists: _, name } => name.span(),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
             Statement::CreateExtension(create_extension) => create_extension.span(),
@@ -582,6 +592,8 @@ impl Spanned for CreateTable {
             inherits: _,     // todo, PostgreSQL specific
             partition_of,
             for_values,
+            colocate_with: _,       // QuiltDB colocation clause
+            in_colocation_group: _, // QuiltDB colocation clause
             strict: _,                          // bool
             copy_grants: _,                     // bool
             enable_schema_evolution: _,         // bool
@@ -1220,6 +1232,11 @@ impl Spanned for AlterTableOperation {
             AlterTableOperation::OwnerTo { .. } => Span::empty(),
             AlterTableOperation::ClusterBy { exprs } => union_spans(exprs.iter().map(|e| e.span())),
             AlterTableOperation::DropClusteringKey => Span::empty(),
+            AlterTableOperation::SetColocationGroup { group, key_columns } => union_spans(
+                core::iter::once(group.span())
+                    .chain(key_columns.iter().flatten().map(|i| i.span)),
+            ),
+            AlterTableOperation::DropColocationGroup => Span::empty(),
             AlterTableOperation::AlterSortKey { .. } => Span::empty(),
             AlterTableOperation::SuspendRecluster => Span::empty(),
             AlterTableOperation::ResumeRecluster => Span::empty(),

@@ -25,11 +25,11 @@ use serde::{Deserialize, Serialize};
 use sqlparser_derive::{Visit, VisitMut};
 
 use crate::ast::{
-    ClusteredBy, ColumnDef, CommentDef, CreateTable, CreateTableLikeKind, CreateTableOptions,
-    DistStyle, Expr, FileFormat, ForValues, HiveDistributionStyle, HiveFormat, Ident,
-    InitializeKind, ObjectName, OnCommit, OneOrManyWithParens, Query, RefreshModeKind,
-    RowAccessPolicy, Statement, StorageLifecyclePolicy, StorageSerializationPolicy,
-    TableConstraint, TableVersion, Tag, WrappedCollection,
+    ClusteredBy, ColocateWith, ColumnDef, CommentDef, CreateTable, CreateTableLikeKind,
+    CreateTableOptions, DistStyle, Expr, FileFormat, ForValues, HiveDistributionStyle, HiveFormat,
+    Ident, InColocationGroup, InitializeKind, ObjectName, OnCommit, OneOrManyWithParens, Query,
+    RefreshModeKind, RowAccessPolicy, Statement, StorageLifecyclePolicy,
+    StorageSerializationPolicy, TableConstraint, TableVersion, Tag, WrappedCollection,
 };
 
 use crate::parser::ParserError;
@@ -183,6 +183,10 @@ pub struct CreateTableBuilder {
     pub sortkey: Option<Vec<Expr>>,
     /// Redshift `BACKUP` option.
     pub backup: Option<bool>,
+    /// QuiltDB `COLOCATE WITH` clause.
+    pub colocate_with: Option<ColocateWith>,
+    /// QuiltDB `IN COLOCATION GROUP` clause.
+    pub in_colocation_group: Option<InColocationGroup>,
 }
 
 impl CreateTableBuilder {
@@ -248,6 +252,8 @@ impl CreateTableBuilder {
             distkey: None,
             sortkey: None,
             backup: None,
+            colocate_with: None,
+            in_colocation_group: None,
         }
     }
     /// Set `OR REPLACE` for the CREATE TABLE statement.
@@ -556,6 +562,19 @@ impl CreateTableBuilder {
         self.backup = backup;
         self
     }
+    /// Set the QuiltDB `COLOCATE WITH` clause.
+    pub fn colocate_with(mut self, colocate_with: Option<ColocateWith>) -> Self {
+        self.colocate_with = colocate_with;
+        self
+    }
+    /// Set the QuiltDB `IN COLOCATION GROUP` clause.
+    pub fn in_colocation_group(
+        mut self,
+        in_colocation_group: Option<InColocationGroup>,
+    ) -> Self {
+        self.in_colocation_group = in_colocation_group;
+        self
+    }
     /// Consume the builder and produce a `CreateTable`.
     pub fn build(self) -> CreateTable {
         CreateTable {
@@ -618,6 +637,8 @@ impl CreateTableBuilder {
             distkey: self.distkey,
             sortkey: self.sortkey,
             backup: self.backup,
+            colocate_with: self.colocate_with,
+            in_colocation_group: self.in_colocation_group,
         }
     }
 }
@@ -699,6 +720,8 @@ impl From<CreateTable> for CreateTableBuilder {
             distkey: table.distkey,
             sortkey: table.sortkey,
             backup: table.backup,
+            colocate_with: table.colocate_with,
+            in_colocation_group: table.in_colocation_group,
         }
     }
 }

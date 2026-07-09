@@ -8660,6 +8660,118 @@ fn parse_refresh_materialized_view() {
 }
 
 #[test]
+fn parse_create_colocation_group() {
+    match verified_stmt("CREATE COLOCATION GROUP sales PARTITION BY HASH (order_id) SHARDS 16") {
+        Statement::CreateColocationGroup {
+            if_not_exists,
+            name,
+            partition_fn,
+            key_columns,
+            shards,
+        } => {
+            assert!(!if_not_exists);
+            assert_eq!("sales", name.to_string());
+            assert_eq!(ColocationPartitionFn::Hash, partition_fn);
+            assert_eq!(vec![Ident::new("order_id")], key_columns);
+            assert_eq!(16, shards);
+        }
+        _ => unreachable!(),
+    }
+
+    match verified_stmt(
+        "CREATE COLOCATION GROUP IF NOT EXISTS s2 PARTITION BY RANGE (ts, region) SHARDS 4",
+    ) {
+        Statement::CreateColocationGroup {
+            if_not_exists,
+            partition_fn,
+            key_columns,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert_eq!(ColocationPartitionFn::Range, partition_fn);
+            assert_eq!(2, key_columns.len());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_drop_colocation_group() {
+    match verified_stmt("DROP COLOCATION GROUP sales") {
+        Statement::DropColocationGroup { if_exists, name } => {
+            assert!(!if_exists);
+            assert_eq!("sales", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+    verified_stmt("DROP COLOCATION GROUP IF EXISTS sales");
+}
+
+#[test]
+fn parse_create_table_colocation_clauses() {
+    // Snowflake replaces the generic CREATE TABLE parser and does not carry
+    // the QuiltDB colocation clauses.
+    let dialects = all_dialects_except(|d| d.is::<SnowflakeDialect>());
+
+    match dialects
+        .verified_stmt("CREATE TABLE order_lines (oid BIGINT) COLOCATE WITH orders ON (oid)")
+    {
+        Statement::CreateTable(create) => {
+            let colocate = create.colocate_with.expect("COLOCATE WITH parsed");
+            assert_eq!("orders", colocate.table.to_string());
+            assert_eq!(Some(vec![Ident::new("oid")]), colocate.key_columns);
+            assert_eq!(None, create.in_colocation_group);
+        }
+        _ => unreachable!(),
+    }
+
+    // Without the ON clause, and composing with a WITH options list.
+    match dialects.verified_stmt("CREATE TABLE t (id BIGINT) WITH (num_shards = 4) COLOCATE WITH anchor")
+    {
+        Statement::CreateTable(create) => {
+            let colocate = create.colocate_with.expect("COLOCATE WITH parsed");
+            assert_eq!(None, colocate.key_columns);
+        }
+        _ => unreachable!(),
+    }
+
+    match dialects
+        .verified_stmt("CREATE TABLE orders (order_id BIGINT) IN COLOCATION GROUP sales ON (order_id)")
+    {
+        Statement::CreateTable(create) => {
+            let in_group = create.in_colocation_group.expect("IN COLOCATION GROUP parsed");
+            assert_eq!("sales", in_group.group.to_string());
+            assert_eq!(Some(vec![Ident::new("order_id")]), in_group.key_columns);
+            assert_eq!(None, create.colocate_with);
+        }
+        _ => unreachable!(),
+    }
+
+    dialects.verified_stmt("CREATE TABLE t (id BIGINT) IN COLOCATION GROUP g");
+}
+
+#[test]
+fn parse_alter_table_colocation_group() {
+    match alter_table_op(verified_stmt("ALTER TABLE tab SET COLOCATION GROUP sales ON (id)")) {
+        AlterTableOperation::SetColocationGroup { group, key_columns } => {
+            assert_eq!("sales", group.to_string());
+            assert_eq!(Some(vec![Ident::new("id")]), key_columns);
+        }
+        _ => unreachable!(),
+    }
+    match alter_table_op(verified_stmt("ALTER TABLE tab SET COLOCATION GROUP sales")) {
+        AlterTableOperation::SetColocationGroup { key_columns, .. } => {
+            assert_eq!(None, key_columns);
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(
+        alter_table_op(verified_stmt("ALTER TABLE tab DROP COLOCATION GROUP")),
+        AlterTableOperation::DropColocationGroup
+    );
+}
+
+#[test]
 fn parse_create_materialized_view_with_cluster_by() {
     let sql = "CREATE MATERIALIZED VIEW myschema.myview CLUSTER BY (foo) AS SELECT foo FROM bar";
     match verified_stmt(sql) {

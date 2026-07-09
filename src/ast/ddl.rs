@@ -457,6 +457,22 @@ pub enum AlterTableOperation {
     },
     /// Remove the clustering key from the table.
     DropClusteringKey,
+    /// `SET COLOCATION GROUP <group> [ ON (<column> [, ...]) ]`
+    ///
+    /// Join a colocation group (QuiltDB): declare this table's partitioning
+    /// aligned with the group's shared spec. `ON` names this table's
+    /// colocation key column(s).
+    SetColocationGroup {
+        /// Colocation group to join.
+        group: ObjectName,
+        /// This table's colocation key column(s) (`ON (...)`), when given.
+        key_columns: Option<Vec<Ident>>,
+    },
+    /// `DROP COLOCATION GROUP`
+    ///
+    /// Leave the table's colocation group (QuiltDB). The table keeps its
+    /// current partition spec but loses the alignment guarantee.
+    DropColocationGroup,
     /// Redshift `ALTER SORTKEY (column_list)`
     /// <https://docs.aws.amazon.com/redshift/latest/dg/r_ALTER_TABLE.html>
     AlterSortKey {
@@ -997,6 +1013,17 @@ impl fmt::Display for AlterTableOperation {
             }
             AlterTableOperation::DropClusteringKey => {
                 write!(f, "DROP CLUSTERING KEY")?;
+                Ok(())
+            }
+            AlterTableOperation::SetColocationGroup { group, key_columns } => {
+                write!(f, "SET COLOCATION GROUP {group}")?;
+                if let Some(columns) = key_columns {
+                    write!(f, " ON ({})", display_comma_separated(columns))?;
+                }
+                Ok(())
+            }
+            AlterTableOperation::DropColocationGroup => {
+                write!(f, "DROP COLOCATION GROUP")?;
                 Ok(())
             }
             AlterTableOperation::AlterSortKey { columns } => {
@@ -2890,6 +2917,75 @@ impl fmt::Display for CreateIndex {
     }
 }
 
+/// `COLOCATE WITH <table> [ ON (<column> [, ...]) ]` clause of `CREATE TABLE`
+/// (QuiltDB): partition the new table aligned with `table`'s spec so related
+/// rows land on matching shard indices. `ON` names the NEW table's colocation
+/// key column(s).
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ColocateWith {
+    /// Anchor table whose partition spec (and colocation group) is joined.
+    #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+    pub table: ObjectName,
+    /// The new table's colocation key column(s) (`ON (...)`), when given.
+    pub key_columns: Option<Vec<Ident>>,
+}
+
+impl fmt::Display for ColocateWith {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "COLOCATE WITH {}", self.table)?;
+        if let Some(columns) = &self.key_columns {
+            write!(f, " ON ({})", display_comma_separated(columns))?;
+        }
+        Ok(())
+    }
+}
+
+/// `IN COLOCATION GROUP <group> [ ON (<column> [, ...]) ]` clause of
+/// `CREATE TABLE` (QuiltDB): create the table as a member of an existing
+/// colocation group. `ON` names the NEW table's colocation key column(s).
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct InColocationGroup {
+    /// Colocation group the new table joins.
+    pub group: ObjectName,
+    /// The new table's colocation key column(s) (`ON (...)`), when given.
+    pub key_columns: Option<Vec<Ident>>,
+}
+
+impl fmt::Display for InColocationGroup {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IN COLOCATION GROUP {}", self.group)?;
+        if let Some(columns) = &self.key_columns {
+            write!(f, " ON ({})", display_comma_separated(columns))?;
+        }
+        Ok(())
+    }
+}
+
+/// Partition-function kind declared by `CREATE COLOCATION GROUP ... PARTITION
+/// BY { HASH | RANGE } (...)` (QuiltDB).
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ColocationPartitionFn {
+    /// `PARTITION BY HASH (...)`.
+    Hash,
+    /// `PARTITION BY RANGE (...)`.
+    Range,
+}
+
+impl fmt::Display for ColocationPartitionFn {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ColocationPartitionFn::Hash => write!(f, "HASH"),
+            ColocationPartitionFn::Range => write!(f, "RANGE"),
+        }
+    }
+}
+
 /// CREATE TABLE statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -3060,6 +3156,10 @@ pub struct CreateTable {
     /// Redshift `BACKUP` option: `BACKUP { YES | NO }`
     /// <https://docs.aws.amazon.com/redshift/latest/dg/r_CREATE_TABLE_NEW.html>
     pub backup: Option<bool>,
+    /// QuiltDB `COLOCATE WITH <table> [ON (<columns>)]` clause.
+    pub colocate_with: Option<ColocateWith>,
+    /// QuiltDB `IN COLOCATION GROUP <group> [ON (<columns>)]` clause.
+    pub in_colocation_group: Option<InColocationGroup>,
 }
 
 impl fmt::Display for CreateTable {
@@ -3233,6 +3333,13 @@ impl fmt::Display for CreateTable {
             | options @ CreateTableOptions::Plain(_)
             | options @ CreateTableOptions::TableProperties(_) => write!(f, " {options}")?,
             _ => (),
+        }
+
+        if let Some(colocate_with) = &self.colocate_with {
+            write!(f, " {colocate_with}")?;
+        }
+        if let Some(in_colocation_group) = &self.in_colocation_group {
+            write!(f, " {in_colocation_group}")?;
         }
 
         if let Some(primary_key) = &self.primary_key {

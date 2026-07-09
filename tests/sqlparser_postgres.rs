@@ -6769,6 +6769,8 @@ fn parse_trigger_related_functions() {
             distkey: None,
             sortkey: None,
             backup: None,
+            colocate_with: None,
+            in_colocation_group: None,
         }
     );
 

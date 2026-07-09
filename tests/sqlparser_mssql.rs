@@ -2013,6 +2013,8 @@ fn parse_create_table_with_valid_options() {
                 distkey: None,
                 sortkey: None,
                 backup: None,
+                colocate_with: None,
+                in_colocation_group: None,
             })
         );
     }
@@ -2187,6 +2189,8 @@ fn parse_create_table_with_identity_column() {
                 distkey: None,
                 sortkey: None,
                 backup: None,
+                colocate_with: None,
+                in_colocation_group: None,
             }),
         );
     }

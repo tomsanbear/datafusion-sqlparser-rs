@@ -5224,6 +5224,8 @@ impl<'a> Parser<'a> {
             self.parse_create_role().map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(temporary)
+        } else if self.parse_keywords(&[Keyword::COLOCATION, Keyword::GROUP]) {
+            self.parse_create_colocation_group()
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
         } else if self.parse_keyword(Keyword::TYPE) {
@@ -7390,6 +7392,13 @@ impl<'a> Parser<'a> {
 
         let object_type = if self.parse_keyword(Keyword::TABLE) {
             ObjectType::Table
+        } else if self.parse_keywords(&[Keyword::COLOCATION, Keyword::GROUP]) {
+            // QuiltDB `DROP COLOCATION GROUP` — a dedicated variant rather
+            // than an `ObjectType` so downstream exhaustive `ObjectType`
+            // matches are unaffected.
+            let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+            let name = self.parse_object_name(false)?;
+            return Ok(Statement::DropColocationGroup { if_exists, name });
         } else if self.parse_keyword(Keyword::COLLATION) {
             ObjectType::Collation
         } else if self.parse_keyword(Keyword::VIEW) {
@@ -8569,6 +8578,24 @@ impl<'a> Parser<'a> {
 
         let create_table_config = self.parse_optional_create_table_config()?;
 
+        // QuiltDB colocation clauses, after the WITH options:
+        // `COLOCATE WITH <table> [ON (cols)]` / `IN COLOCATION GROUP <g> [ON (cols)]`.
+        let colocate_with = if self.parse_keywords(&[Keyword::COLOCATE, Keyword::WITH]) {
+            let table = self.parse_object_name(allow_unquoted_hyphen)?;
+            let key_columns = self.parse_optional_colocation_key_columns()?;
+            Some(ColocateWith { table, key_columns })
+        } else {
+            None
+        };
+        let in_colocation_group =
+            if self.parse_keywords(&[Keyword::IN, Keyword::COLOCATION, Keyword::GROUP]) {
+                let group = self.parse_object_name(false)?;
+                let key_columns = self.parse_optional_colocation_key_columns()?;
+                Some(InColocationGroup { group, key_columns })
+            } else {
+                None
+            };
+
         // ClickHouse supports `PRIMARY KEY`, before `ORDER BY`
         // https://clickhouse.com/docs/en/sql-reference/statements/create/table#primary-key
         let primary_key = if dialect_of!(self is ClickHouseDialect | GenericDialect)
@@ -8688,7 +8715,56 @@ impl<'a> Parser<'a> {
             .diststyle(diststyle)
             .distkey(distkey)
             .sortkey(sortkey)
+            .colocate_with(colocate_with)
+            .in_colocation_group(in_colocation_group)
             .build())
+    }
+
+    /// Parse the optional `ON (<column> [, ...])` tail of a QuiltDB colocation
+    /// clause (`COLOCATE WITH` / `IN COLOCATION GROUP` / `SET COLOCATION
+    /// GROUP`), naming the table's own colocation key column(s).
+    fn parse_optional_colocation_key_columns(
+        &mut self,
+    ) -> Result<Option<Vec<Ident>>, ParserError> {
+        if !self.parse_keyword(Keyword::ON) {
+            return Ok(None);
+        }
+        self.expect_token(&Token::LParen)?;
+        let columns = self.parse_comma_separated(Parser::parse_identifier)?;
+        self.expect_token(&Token::RParen)?;
+        Ok(Some(columns))
+    }
+
+    /// Parse a QuiltDB `CREATE COLOCATION GROUP` statement:
+    ///
+    /// ```sql
+    /// CREATE COLOCATION GROUP [ IF NOT EXISTS ] name
+    ///     PARTITION BY { HASH | RANGE } (column [, ...]) SHARDS n
+    /// ```
+    ///
+    /// The `CREATE COLOCATION` keywords have already been consumed.
+    pub fn parse_create_colocation_group(&mut self) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        self.expect_keywords(&[Keyword::PARTITION, Keyword::BY])?;
+        let partition_fn = match self.expect_one_of_keywords(&[Keyword::HASH, Keyword::RANGE])? {
+            Keyword::HASH => ColocationPartitionFn::Hash,
+            Keyword::RANGE => ColocationPartitionFn::Range,
+            // expect_one_of_keywords only returns a listed keyword.
+            _ => unreachable!(),
+        };
+        self.expect_token(&Token::LParen)?;
+        let key_columns = self.parse_comma_separated(Parser::parse_identifier)?;
+        self.expect_token(&Token::RParen)?;
+        self.expect_keyword_is(Keyword::SHARDS)?;
+        let shards = self.parse_literal_uint()?;
+        Ok(Statement::CreateColocationGroup {
+            if_not_exists,
+            name,
+            partition_fn,
+            key_columns,
+            shards,
+        })
     }
 
     fn maybe_parse_create_table_like(
@@ -10453,6 +10529,8 @@ impl<'a> Parser<'a> {
                 AlterTableOperation::DropProjection { if_exists, name }
             } else if self.parse_keywords(&[Keyword::CLUSTERING, Keyword::KEY]) {
                 AlterTableOperation::DropClusteringKey
+            } else if self.parse_keywords(&[Keyword::COLOCATION, Keyword::GROUP]) {
+                AlterTableOperation::DropColocationGroup
             } else {
                 let has_column_keyword = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
                 let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -10697,6 +10775,10 @@ impl<'a> Parser<'a> {
         } else if self.parse_keywords(&[Keyword::VALIDATE, Keyword::CONSTRAINT]) {
             let name = self.parse_identifier()?;
             AlterTableOperation::ValidateConstraint { name }
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::COLOCATION, Keyword::GROUP]) {
+            let group = self.parse_object_name(false)?;
+            let key_columns = self.parse_optional_colocation_key_columns()?;
+            AlterTableOperation::SetColocationGroup { group, key_columns }
         } else {
             let mut options =
                 self.parse_options_with_keywords(&[Keyword::SET, Keyword::TBLPROPERTIES])?;
